@@ -1,0 +1,18 @@
+{
+    "name": "Google Play Music",
+    "pluginName": "gmusic",
+    "author": "Sam Hanes",
+    "email": "sam@maltera.com",
+    "version": "0.1",
+    "website": "http://gettomahawk.com",
+    "description": "Streams music from Google Play Music All Access.",
+    "type": "resolver/javascript",
+    "manifest": {
+        "main": "contents/code/gmusic.js",
+        "scripts": [
+        ],
+        "icon": "contents/images/icon.png",
+        "resources": [
+        ]
+    }
+}

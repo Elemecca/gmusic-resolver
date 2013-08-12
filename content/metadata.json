@@ -13,6 +13,8 @@
         ],
         "icon": "contents/images/icon.png",
         "resources": [
+            "contents/code/config.ui",
+            "contents/code/play-logo.png"
         ]
     }
 }

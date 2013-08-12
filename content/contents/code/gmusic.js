@@ -20,8 +20,38 @@ var GMusicResolver = Tomahawk.extend( TomahawkResolver, {
         timeout: 8
     },
 
+    getConfigUi: function() {
+        return {
+            "widget": Tomahawk.readBase64( "config.ui" ),
+            fields: [{
+                name: "email",
+                widget: "email_edit",
+                property: "text"
+            }, {
+                name: "password",
+                widget: "password_edit",
+                property: "text"
+            }],
+            images: [{
+                "play-logo.png":
+                    Tomahawk.readBase64( "play-logo.png" )
+            }]
+        };
+    },
+
+    newConfigSaved: function() {
+        var config = this.getUserConfig();
+        if (this.email !== config.email
+                || this.password !== config.password)
+            this.init();
+    },
+
     init: function() {
-        Tomahawk.log( "GMusic resolver is just a stub." );
+        var config = this.getUserConfig();
+        Tomahawk.log( "GMusic Resolver"
+                + " email='" + config.email + "'"
+                + " password='" + config.password + "'"
+            );
     }
 
 });

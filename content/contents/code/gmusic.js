@@ -20,6 +20,8 @@ var GMusicResolver = Tomahawk.extend( TomahawkResolver, {
         timeout: 8
     },
 
+    version: '0.1',
+
     getConfigUi: function() {
         return {
             "widget": Tomahawk.readBase64( "config.ui" ),
@@ -48,10 +50,73 @@ var GMusicResolver = Tomahawk.extend( TomahawkResolver, {
 
     init: function() {
         var config = this.getUserConfig();
+        this.email = config.email;
+        this.password = config.password;
+
         Tomahawk.log( "GMusic Resolver"
                 + " email='" + config.email + "'"
                 + " password='" + config.password + "'"
             );
+
+        if (!this.email || !this.password) {
+            Tomahawk.log( "GMusic resolver not configured." );
+            return;
+        }
+
+        this._login();
+    },
+
+    _login: function (callback) {
+        var that = this;
+        this._sendPOST( 'https://www.google.com/accounts/ClientLogin',
+                {   'accountType':  'HOSTED_OR_GOOGLE',
+                    'Email':        that.email,
+                    'Passwd':       that.password,
+                    'service':      'sj',
+                    'source':       'tomahawk-gmusic-' + that.version
+                },
+                null,
+                function (request) {
+                    if (200 == request.status) {
+                        this.token = request.responseText.match( /^Auth=(.*)$/m )[ 1 ];
+                        Tomahawk.log( 'Login OK:\n' + token );
+                    } else {
+                        Tomahawk.log( 'Login failed:\n' + request.responseText );
+                    }
+                }
+            );
+    },
+
+    _sendPOST: function (url, params, headers, callback) {
+        var request = new XMLHttpRequest();
+        request.open( 'POST', url, true );
+
+        if (headers) for (var name in headers) {
+            request.setRequestHeader( name, headers[ name ] );
+        }
+
+        request.setRequestHeader( 'Content-Type',
+                'application/x-www-form-urlencoded' );
+
+        request.onreadystatechange = function() {
+            if (4 == request.readyState)
+                callback.call( window, request );
+        }
+        
+        function encode (value) {
+            // close enough to x-www-form-urlencoded
+            return encodeURIComponent( value ).replace( '%20', '+' );
+        }
+
+        var postdata = "";
+        for (var name in params) {
+            postdata += '&' + encode( name )
+                + '=' + encode( params[ name ] );
+        }
+        postdata = postdata.substring( 1 );
+        Tomahawk.log( "POST request:\n" + url + "\n" + postdata );
+
+        request.send( postdata );
     }
 
 });

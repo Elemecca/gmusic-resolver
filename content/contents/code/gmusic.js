@@ -59,7 +59,7 @@ var GMusicResolver = Tomahawk.extend( TomahawkResolver, {
             return;
         }
 
-        //this._login();
+        this._login();
     },
 
     _convertTrack: function (entry) {
@@ -92,58 +92,80 @@ var GMusicResolver = Tomahawk.extend( TomahawkResolver, {
         return entry.name;
     },
 
-    search: function (qid, query) {
+    _execSearch: function (query, callback, max_results) {
         Tomahawk.log( "Google Music got search '" + query + "'." );
+        var url =  this._baseURL
+                + 'query?q=' + encodeURIComponent( query );
+
+        if (max_results)
+            url += '&max-results=' + max_results;
+
         var that = this;
-        this._request( 'GET', this._baseURL 
-                + 'query?q=' + encodeURIComponent( query ),
-            function (request) {
-                if (200 != request.status) {
-                    Tomahawk.log(
-                            "Google Music search '" + query + "' failed:\n"
-                            + request.status + " "
-                            + request.statusText.trim() + "\n"
-                            + request.responseText.trim()
-                        );
-                    return;
-                }
-
-                var response = JSON.parse( request.responseText );
-                var tracks = [], albums = [], artists = [];
-                for (var idx = 0; idx < response.entries.length; idx++) {
-                    var entry = response.entries[ idx ];
-
-                    switch (entry.type) {
-                    case '1':
-                        var result = that._convertTrack( entry.track );
-                        result.score = entry.score / 100;
-                        tracks.push( result );
-                        break;
-                    
-                    /*
-                    case '2':
-                        artists.push( that._convertArtist( entry.artist ) );
-                        break;
-
-                    case '3':
-                        albums.push( that._convertAlbum( entry.album ) );
-                        break;
-                    */
-                    }
-                }
-
-                Tomahawk.log( "found tracks:\n" + JSON.stringify( tracks, null, true ) );
-
-                Tomahawk.addTrackResults(
-                        { 'qid': qid, 'results': tracks } );
-                /*
-                Tomahawk.addAlbumResults(
-                        { 'qid': qid, 'results': albums } );
-                Tomahawk.addArtistResults(
-                        { 'qid': qid, 'results': artists } );
-                */
+        this._request( 'GET', url, function (request) {
+            if (200 != request.status) {
+                Tomahawk.log(
+                        "Google Music search '" + query + "' failed:\n"
+                        + request.status + " "
+                        + request.statusText.trim() + "\n"
+                        + request.responseText.trim()
+                    );
+                return;
             }
-        );
+
+            var response = JSON.parse( request.responseText );
+            var results = { tracks: [], albums: [], artists: [] };
+
+            // entries member is missing when there are no results
+            if (!response.entries) {
+                callback.call( window, results );
+                return;
+            }   
+
+            for (var idx = 0; idx < response.entries.length; idx++) {
+                var entry = response.entries[ idx ];
+
+                switch (entry.type) {
+                case '1':
+                    var result = that._convertTrack( entry.track );
+                    result.score = entry.score / 512;
+                    results.tracks.push( result );
+                    break;
+                
+                case '2':
+                    var result = that._convertArtist( entry.artist );
+                    result.score = entry.score / 512;
+                    results.artists.push( result );
+                    break;
+
+                case '3':
+                    var result = that._convertAlbum( entry.album );
+                    result.score = entry.score / 512;
+                    results.albums.push( result );
+                    break;
+                }
+            }
+
+            callback.call( window, results );
+        });
+    },
+
+    search: function (qid, query) {
+        this._execSearch( query, function (results) {
+            Tomahawk.addTrackResults(
+                    { 'qid': qid, 'results': results.tracks } );
+            Tomahawk.addAlbumResults(
+                    { 'qid': qid, 'results': results.albums } );
+            Tomahawk.addArtistResults(
+                    { 'qid': qid, 'results': results.artists } );
+        });
+    },
+
+    resolve: function (qid, artist, album, title) {
+        var query = '"' + artist + '" "' + album + '" "' + title + '"';
+        this._execSearch( query, function (results) {
+            Tomahawk.addTrackResults(
+                    { 'qid': qid, 'results': results.tracks } );
+        }, 1 );
     },
 
     _request: function (method, url, callback, headers, nologin) {

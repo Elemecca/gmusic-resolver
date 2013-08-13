@@ -73,7 +73,10 @@ var GMusicResolver = Tomahawk.extend( TomahawkResolver, {
             discnumber: entry.discNumber,
 
             size:       entry.estimatedSize,
-            duration:   entry.durationMillis / 1000
+            duration:   entry.durationMillis / 1000,
+
+            url:        'gmusic:track:' + entry.nid,
+            checked:    true
         };
     },
 

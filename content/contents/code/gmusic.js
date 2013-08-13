@@ -20,8 +20,10 @@ var GMusicResolver = Tomahawk.extend( TomahawkResolver, {
         timeout: 8
     },
 
-    _version: '0.1',
-    _baseURL: 'https://www.googleapis.com/sj/v1/',
+    _version:   '0.1',
+    _baseURL:   'https://www.googleapis.com/sj/v1/',
+    _playURL:   'https://play.google.com/music/play',
+    _key:       '27f7313e-f75d-445a-ac99-56386a5fe879',
 
     getConfigUi: function() {
         return {
@@ -58,6 +60,8 @@ var GMusicResolver = Tomahawk.extend( TomahawkResolver, {
             Tomahawk.log( "GMusic resolver not configured." );
             return;
         }
+
+        Tomahawk.addCustomUrlHandler( 'gmusic', 'getStreamUrl' );
 
         this._login();
     },
@@ -178,6 +182,56 @@ var GMusicResolver = Tomahawk.extend( TomahawkResolver, {
         }, 1 );
     },
 
+    _parseUrn: function (urn) {
+        var match = urn.match( /^gmusic:([a-z]+):(.+)$/ );
+        if (!match) return null;
+
+        return {
+            type:   match[ 1 ],
+            id:     match[ 2 ]
+        };
+    },
+
+    getStreamUrl: function (urn) {
+        Tomahawk.log( "getting stream for '" + urn + "'" );
+
+        urn = this._parseUrn( urn );
+        if (!urn || 'track' != urn.type)
+            return;
+
+        Tomahawk.log( "track ID is '" + urn.id + "'" );
+       
+        // generate 15-character lowercase alphanumeric salt
+        var salt = '';
+        for (var idx = 0; idx < 15; idx++)
+            salt += Math.floor( Math.random() * 36 ).toString( 36 );
+
+        var sig = encodeURIComponent(
+                CryptoJS.HmacSHA1( urn.id + salt, this._key )
+                    .toString( CryptoJS.end.Base64 )
+            );
+
+        var url = this._playURL
+                + '?u=0&pt=e&slt=' + salt + '&sig=' + sig;
+                + '&' + ('T' == urn.id[ 0 ] ? 'mjck' : 'songid')
+                    + '=' + urn.id
+            ;
+
+        Tomahawk.log( "stream request:\n" + url );
+       
+        /*
+        this._request( 'GET', url, function (request) {
+            Tomahawk.log( "stream response:\n"
+                    + request.status + ' '
+                    + request.statusText.trim() + "\n"
+                    + request.responseText.trim()
+                );
+        });
+        */
+
+        return "";
+    },
+
     _request: function (method, url, callback, headers, nologin) {
         var request = new XMLHttpRequest();
         request.open( method, url, true );
@@ -218,7 +272,7 @@ var GMusicResolver = Tomahawk.extend( TomahawkResolver, {
                     if (200 == request.status) {
                         that._token = request.responseText
                                 .match( /^Auth=(.*)$/m )[ 1 ];
-                        callback.call( window );
+                        if (callback) callback.call( window );
                     } else {
                         Tomahawk.log(
                                 "Google Music login failed:\n"

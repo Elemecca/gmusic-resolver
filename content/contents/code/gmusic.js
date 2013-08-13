@@ -93,7 +93,6 @@ var GMusicResolver = Tomahawk.extend( TomahawkResolver, {
     },
 
     _execSearch: function (query, callback, max_results) {
-        Tomahawk.log( "Google Music got search '" + query + "'." );
         var url =  this._baseURL
                 + 'query?q=' + encodeURIComponent( query );
 
@@ -161,10 +160,21 @@ var GMusicResolver = Tomahawk.extend( TomahawkResolver, {
     },
 
     resolve: function (qid, artist, album, title) {
-        var query = '"' + artist + '" "' + album + '" "' + title + '"';
+        var query = '"' + artist + '" "' + title + '"';
         this._execSearch( query, function (results) {
-            Tomahawk.addTrackResults(
-                    { 'qid': qid, 'results': results.tracks } );
+            var match = album.toLowerCase().trim();
+            for (var idx = 0; idx < results.tracks.length; idx++) {
+                var track = results.tracks[ idx ];
+                var cand = track.album.toLowerCase().trim();
+                if (match == cand.substring( 0, match.length )) {
+                    Tomahawk.addTrackResults(
+                            { 'qid': qid, 'results': [ track ] } );
+                    return;
+                }
+            }
+
+            // no matches, don't wait for the timeout
+            Tomahawk.addTrackResults({ 'qid': qid, 'results': [] });
         }, 1 );
     },
 

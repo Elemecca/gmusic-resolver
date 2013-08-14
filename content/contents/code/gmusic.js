@@ -248,90 +248,122 @@ var GMusicResolver = Tomahawk.extend( TomahawkResolver, {
         return "";
     },
 
-    _request: function (method, url, callback, headers, nologin) {
-        var request = new XMLHttpRequest();
-        request.open( method, url, true );
-        request.responseType = 'text';
-
-        request.setRequestHeader( 'Authorization',
-                'GoogleLogin auth=' + this._token );
+    _login: function (callback) {
+        this._token = null;
 
         var that = this;
+        var name = this.settings.name;
+        this._request(
+            'POST', 'https://www.google.com/accounts/ClientLogin',
+            function (request) {
+                if (200 == request.status) {
+                    that._token = request.responseText
+                            .match( /^Auth=(.*)$/m )[ 1 ];
+                    if (callback) callback.call( window );
+                } else {
+                    Tomahawk.log(
+                            name + " login failed:\n"
+                            + request.status + " "
+                            + request.statusText.trim() + "\n"
+                            + request.responseText.trim()
+                        );
+                }
+            }, null,
+            {   'accountType':  'HOSTED_OR_GOOGLE',
+                'Email':        that._email.trim(),
+                'Passwd':       that._password.trim(),
+                'service':      'sj',
+                'source':       'tomahawk-gmusic-' + that._version
+            }, true
+        );
+    },
+
+    /** Called when an HTTP request is completed.
+     * @callback requestCB
+     * @param {XMLHttpRequest} request the completed request
+     */
+
+    /** Sends an asynchronous HTTP request.
+     *
+     * If an authentication token is available it will be sent.
+     * Unless {@code nologin} is set, if the server returns 401 
+     * {@link #_login} will be called and the request will be retried.
+     * Automatic login will only be attempted once per request. If 401
+     * is returned again after logging in the request will be handled
+     * as normal.
+     *
+     * If {@code body} is not provided the request will be sent without
+     * an entity. If a body is provided it must be of a type supported
+     * by {@code XMLHttpRequest}. As a special case, if an object is
+     * provided it will be interpreted as form parameters and encoded
+     * as {@code application/x-www-form-urlencoded}.
+     * 
+     * @param {string} method the HTTP method to use
+     * @param {string} url the URL to request
+     * @param {requestCB} callback completion callback function
+     * @param {object} [headers] additional request headers
+     * @param {string|object} [body] the request entity to be sent
+     * @param {boolean} [nologin=false]
+     *        whether to suppress automatic re-authentication
+     */
+    _request: function (method, url, callback, headers, body, nologin) {
+        var request = new XMLHttpRequest();
+        request.open( method, url, true );
+
+        // prevent useless parsing of the response
+        request.responseType = 'text';
+
+        // add the authentication token if we have one
+        if (this._token) request.setRequestHeader(
+                'Authorization', 'GoogleLogin auth=' + this._token );
+        
+        // add extra request headers
+        if (headers) for (var name in headers)
+            request.setRequestHeader( name, headers[ name ] );
+
+        var that = this;
+        var args = arguments;
+        var name = this.settings.name;
         request.onreadystatechange = function() {
             if (4 != request.readyState) return;
 
             // log in and retry if necessary
             if (401 == request.status && !nologin) {
-                Tomahawk.log( 'Google Music login expired, re-authenticating.' );
+                Tomahawk.log( name + ' login expired, re-authenticating' );
                 that._login( function() {
-                    that._request( method, url, callback, headers, true );
+                    that._request.apply( that, args );
                 });
             } else {
                 callback.call( window, request );
             }
         }
 
-        request.send();
-    },
+        // if body given as object encode as x-www-form-urlencoded
+        if ('object' == typeof body) {
+            request.setRequestHeader( 'Content-Type',
+                    'application/x-www-form-urlencoded' );
 
-    _login: function (callback) {
-        var that = this;
-        this._sendPOST( 'https://www.google.com/accounts/ClientLogin',
-                {   'accountType':  'HOSTED_OR_GOOGLE',
-                    'Email':        that._email,
-                    'Passwd':       that._password,
-                    'service':      'sj',
-                    'source':       'tomahawk-gmusic-' + that.version
-                },
-                null,
-                function (request) {
-                    if (200 == request.status) {
-                        that._token = request.responseText
-                                .match( /^Auth=(.*)$/m )[ 1 ];
-                        if (callback) callback.call( window );
-                    } else {
-                        Tomahawk.log(
-                                "Google Music login failed:\n"
-                                + request.status + " "
-                                + request.statusText.trim() + "\n"
-                                + request.responseText.trim()
-                            );
-                    }
-                }
-            );
-    },
+            function encode (value) {
+                // close enough to x-www-form-urlencoded
+                return encodeURIComponent( value ).replace( '%20', '+' );
+            }
 
-    _sendPOST: function (url, params, headers, callback) {
-        var request = new XMLHttpRequest();
-        request.open( 'POST', url, true );
-        request.responseType = 'text';
+            var postdata = "";
+            for (var name in body) {
+                postdata += '&' + encode( name )
+                    + '=' + encode( body[ name ] );
+            }
 
-        if (headers) for (var name in headers) {
-            request.setRequestHeader( name, headers[ name ] );
+            body = postdata.substring( 1 );
+            Tomahawk.log( "posting:\n" + body );
         }
 
-        request.setRequestHeader( 'Content-Type',
-                'application/x-www-form-urlencoded' );
-
-        request.onreadystatechange = function() {
-            if (4 == request.readyState)
-                callback.call( window, request );
+        if (body) {
+            request.send( body );
+        } else {
+            request.send();
         }
-        
-        function encode (value) {
-            // close enough to x-www-form-urlencoded
-            return encodeURIComponent( value ).replace( '%20', '+' );
-        }
-
-        var postdata = "";
-        for (var name in params) {
-            postdata += '&' + encode( name )
-                + '=' + encode( params[ name ] );
-        }
-    
-        request.send( postdata.substring( 1 ) );
     }
-
 });
 
 Tomahawk.resolver.instance = GMusicResolver;

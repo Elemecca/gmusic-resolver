@@ -52,18 +52,35 @@ var GMusicResolver = Tomahawk.extend( TomahawkResolver, {
     },
 
     init: function() {
+        var name = this.settings.name;
         var config = this.getUserConfig();
         this._email = config.email;
         this._password = config.password;
 
         if (!this._email || !this._password) {
-            Tomahawk.log( "GMusic resolver not configured." );
+            Tomahawk.log( name + " resolver not configured." );
             return;
+        }
+
+        // check that we have all the needed CryptoJS module
+        if ('object' !== typeof CryptoJS) {
+            Tomahawk.log( "CryptoJS missing" );
+        } else {
+            if ('object' !== typeof CryptoJS.algo.HMAC)
+                Tomahawk.log( "CryptoJS.algo.HMAC missing" );
+
+            if ('object' !== typeof CryptoJS.algo.SHA1)
+                Tomahawk.log( "CryptoJS.algo.SHA1 missing" );
+
+            if ('object' !== typeof CryptoJS.enc.Base64)
+                Tomahawk.log( "CryptoJS.enc.Base64 missing" );
         }
 
         Tomahawk.addCustomUrlHandler( 'gmusic', 'getStreamUrl' );
 
-        this._login();
+        this._login( function() {
+            Tomahawk.log( name + " logged in successfully" );
+        });
     },
 
     _convertTrack: function (entry) {
@@ -79,7 +96,7 @@ var GMusicResolver = Tomahawk.extend( TomahawkResolver, {
             size:       entry.estimatedSize,
             duration:   entry.durationMillis / 1000,
 
-            url:        'gmusic:track:' + entry.nid,
+            url:        'gmusic://track/' + entry.nid,
             checked:    true
         };
     },
@@ -183,7 +200,7 @@ var GMusicResolver = Tomahawk.extend( TomahawkResolver, {
     },
 
     _parseUrn: function (urn) {
-        var match = urn.match( /^gmusic:([a-z]+):(.+)$/ );
+        var match = urn.match( /^gmusic:\/\/([a-z]+)\/(.+)$/ );
         if (!match) return null;
 
         return {
@@ -206,20 +223,20 @@ var GMusicResolver = Tomahawk.extend( TomahawkResolver, {
         for (var idx = 0; idx < 15; idx++)
             salt += Math.floor( Math.random() * 36 ).toString( 36 );
 
-        var sig = encodeURIComponent(
-                CryptoJS.HmacSHA1( urn.id + salt, this._key )
-                    .toString( CryptoJS.end.Base64 )
-            );
+        // generate SHA1 HMAC of track ID + salt
+        // encoded with URL-safe base64
+        var sig = CryptoJS.HmacSHA1( urn.id + salt, this._key )
+                .toString( CryptoJS.enc.Base64 )
+                .replace( /\+/g, '-' ).replace( /\//g, '_' );
 
         var url = this._playURL
-                + '?u=0&pt=e&slt=' + salt + '&sig=' + sig;
+                + '?u=0&pt=e&slt=' + salt + '&sig=' + sig
                 + '&' + ('T' == urn.id[ 0 ] ? 'mjck' : 'songid')
                     + '=' + urn.id
             ;
 
         Tomahawk.log( "stream request:\n" + url );
        
-        /*
         this._request( 'GET', url, function (request) {
             Tomahawk.log( "stream response:\n"
                     + request.status + ' '
@@ -227,7 +244,6 @@ var GMusicResolver = Tomahawk.extend( TomahawkResolver, {
                     + request.responseText.trim()
                 );
         });
-        */
 
         return "";
     },

@@ -22,8 +22,6 @@ var GMusicResolver = Tomahawk.extend( TomahawkResolver, {
 
     _version:   '0.1',
     _baseURL:   'https://www.googleapis.com/sj/v1/',
-    _playURL:   'https://play.google.com/music/play',
-    _key:       '27f7313e-f75d-445a-ac99-56386a5fe879',
 
     getConfigUi: function() {
         return {
@@ -62,18 +60,48 @@ var GMusicResolver = Tomahawk.extend( TomahawkResolver, {
             return;
         }
 
-        // check that we have all the needed CryptoJS module
-        if ('object' !== typeof CryptoJS) {
-            Tomahawk.log( "CryptoJS missing" );
-        } else {
-            if ('object' !== typeof CryptoJS.algo.HMAC)
-                Tomahawk.log( "CryptoJS.algo.HMAC missing" );
+        // check that we have all the needed CryptoJS modules
+        {   var error = false;
+            if (error |= 'object' !== typeof CryptoJS) {
+                Tomahawk.log( "CryptoJS missing" );
+            } else {
+                if (error |= 'object' !== typeof CryptoJS.algo.HMAC)
+                    Tomahawk.log( "CryptoJS.algo.HMAC missing" );
 
-            if ('object' !== typeof CryptoJS.algo.SHA1)
-                Tomahawk.log( "CryptoJS.algo.SHA1 missing" );
+                if (error |= 'object' !== typeof CryptoJS.algo.SHA1)
+                    Tomahawk.log( "CryptoJS.algo.SHA1 missing" );
 
-            if ('object' !== typeof CryptoJS.enc.Base64)
-                Tomahawk.log( "CryptoJS.enc.Base64 missing" );
+                if (error |= 'object' !== typeof CryptoJS.enc.Base64)
+                    Tomahawk.log( "CryptoJS.enc.Base64 missing" );
+            }
+
+            if (error) {
+                Tomahawk.log( "Required CryptoJS modules are missing."
+                        + " Did cryptojs.js get loaded? Some versions"
+                        + " of Tomahawk don't load extra scripts when"
+                        + " installing unpacked resolvers. Try making"
+                        + " an AXE and installing it instead."
+                    );
+                return;
+            }
+        }
+
+        // load signing key
+        {   var s1 = CryptoJS.enc.Base64.parse(
+                    'VzeC4H4h+T2f0VI180nVX8x+Mb5HiTtGnKgH52Otj8ZCGDz9jRW'
+                    + 'yHb6QXK0JskSiOgzQfwTY5xgLLSdUSreaLVMsVVWfxfa8Rw=='
+                );
+            var s2 = CryptoJS.enc.Base64.parse(
+                    'ZAPnhUkYwQ6y5DdQxWThbvhJHN8msQ1rqJw0ggKdufQjelrKuiG'
+                    + 'GJI30aswkgCWTDyHkTGK9ynlqTkJ5L4CiGGUabGeo8M6JTQ=='
+                );
+
+            for (var idx = 0; idx < s1.words.length; idx++)
+                s1.words[ idx ] ^= s2.words[ idx ];
+            this._key = s1;
+
+            Tomahawk.log( "generated key:\n"
+                    + this._key.toString( CryptoJS.enc.Base64 ) );
         }
 
         Tomahawk.addCustomUrlHandler( 'gmusic', 'getStreamUrl', true );
@@ -223,34 +251,40 @@ var GMusicResolver = Tomahawk.extend( TomahawkResolver, {
 
         Tomahawk.log( "track ID is '" + urn.id + "'" );
        
-        // generate 15-character lowercase alphanumeric salt
-        var salt = '';
-        for (var idx = 0; idx < 15; idx++)
-            salt += Math.floor( Math.random() * 36 ).toString( 36 );
+        // generate 13-digit numeric salt
+        var salt = '' + Math.floor( Math.random() * 10000000000000 );
 
         // generate SHA1 HMAC of track ID + salt
         // encoded with URL-safe base64
         var sig = CryptoJS.HmacSHA1( urn.id + salt, this._key )
                 .toString( CryptoJS.enc.Base64 )
-                .replace( /\+/g, '-' ).replace( /\//g, '_' );
+                .replace( /=+$/, '' )   // no padding
+                .replace( /\+/g, '-' )  // URL-safe alphabet
+                .replace( /\//g, '_' )  // URL-safe alphabet
+            ;
 
-        var url = this._playURL
-                + '?u=0&pt=e&slt=' + salt + '&sig=' + sig
+        var url = 'https://android.clients.google.com/music/mplay'
+                + '?net=wifi&pt=a&dt=pc&targetkbps=8310'
                 + '&' + ('T' == urn.id[ 0 ] ? 'mjck' : 'songid')
                     + '=' + urn.id
+                + '&slt=' + salt + '&sig=' + sig
             ;
 
         Tomahawk.log( "stream request:\n" + url );
        
         this._request( 'GET', url, function (request) {
-            if (200 == request.status) {
-                var response = JSON.parse( request.responseText );
-                var url = response.urls[ 0 ];
-                Tomahawk.log( "found URL " + url );
-                Tomahawk.reportStreamUrl( qid, url );
+            if (302 == request.status) {
+                Tomahawk.log(
+                        "stream request succeeded:\n"
+                        + request.status + " "
+                        + request.statusText.trim() + "\n"
+                        + request.responseText.trim()
+                    );
+                var url = request.getResponseHeader( 'Location' );
+                Tomahawk.log( "got streaming URL:\n" + url );
             } else {
                 Tomahawk.log(
-                        "Google Music stream request failed:\n"
+                        "stream request failed:\n"
                         + request.status + " "
                         + request.statusText.trim() + "\n"
                         + request.responseText.trim()

@@ -76,7 +76,7 @@ var GMusicResolver = Tomahawk.extend( TomahawkResolver, {
                 Tomahawk.log( "CryptoJS.enc.Base64 missing" );
         }
 
-        Tomahawk.addCustomUrlHandler( 'gmusic', 'getStreamUrl' );
+        Tomahawk.addCustomUrlHandler( 'gmusic', 'getStreamUrl', true );
 
         var that = this;
         this._login( function() {
@@ -213,7 +213,7 @@ var GMusicResolver = Tomahawk.extend( TomahawkResolver, {
         };
     },
 
-    getStreamUrl: function (urn) {
+    getStreamUrl: function (qid, urn) {
         if (!this._ready) return;
         Tomahawk.log( "getting stream for '" + urn + "'" );
 
@@ -243,11 +243,19 @@ var GMusicResolver = Tomahawk.extend( TomahawkResolver, {
         Tomahawk.log( "stream request:\n" + url );
        
         this._request( 'GET', url, function (request) {
-            Tomahawk.log( "stream response:\n"
-                    + request.status + ' '
-                    + request.statusText.trim() + "\n"
-                    + request.responseText.trim()
-                );
+            if (200 == request.status) {
+                var response = JSON.parse( request.responseText );
+                var url = response.urls[ 0 ];
+                Tomahawk.log( "found URL " + url );
+                Tomahawk.reportStreamUrl( qid, url );
+            } else {
+                Tomahawk.log(
+                        "Google Music stream request failed:\n"
+                        + request.status + " "
+                        + request.statusText.trim() + "\n"
+                        + request.responseText.trim()
+                    );
+            }
         });
 
         return "";

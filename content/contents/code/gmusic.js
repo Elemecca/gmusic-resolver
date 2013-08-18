@@ -78,8 +78,10 @@ var GMusicResolver = Tomahawk.extend( TomahawkResolver, {
 
         Tomahawk.addCustomUrlHandler( 'gmusic', 'getStreamUrl' );
 
+        var that = this;
         this._login( function() {
             Tomahawk.log( name + " logged in successfully" );
+            that._ready = true;
         });
     },
 
@@ -170,6 +172,7 @@ var GMusicResolver = Tomahawk.extend( TomahawkResolver, {
     },
 
     search: function (qid, query) {
+        if (!this._ready) return;
         this._execSearch( query, function (results) {
             Tomahawk.addTrackResults(
                     { 'qid': qid, 'results': results.tracks } );
@@ -181,6 +184,7 @@ var GMusicResolver = Tomahawk.extend( TomahawkResolver, {
     },
 
     resolve: function (qid, artist, album, title) {
+        if (!this._ready) return;
         var query = '"' + artist + '" "' + title + '"';
         this._execSearch( query, function (results) {
             var match = album.toLowerCase().trim();
@@ -210,6 +214,7 @@ var GMusicResolver = Tomahawk.extend( TomahawkResolver, {
     },
 
     getStreamUrl: function (urn) {
+        if (!this._ready) return;
         Tomahawk.log( "getting stream for '" + urn + "'" );
 
         urn = this._parseUrn( urn );
@@ -248,8 +253,28 @@ var GMusicResolver = Tomahawk.extend( TomahawkResolver, {
         return "";
     },
 
+    /** Called when the login process is completed.
+     * @callback loginCB
+     */
+
+    /** Asynchronously authenticates with the SkyJam service.
+     * Only one login attempt will run at a time. If a login request is
+     * already pending the callback (if one is provided) will be queued
+     * to run when it is complete. 
+     * 
+     * @param {loginCB} [callback] a function to be called on completion
+     */
     _login: function (callback) {
         this._token = null;
+	
+        // if a login is already in progress just queue the callback
+	if (this._loginLock) {
+            this._loginCallbacks.push( callback );
+            return;
+        }
+
+        this._loginLock = true;
+        this._loginCallbacks = [ callback ];
 
         var that = this;
         var name = this.settings.name;
@@ -259,7 +284,12 @@ var GMusicResolver = Tomahawk.extend( TomahawkResolver, {
                 if (200 == request.status) {
                     that._token = request.responseText
                             .match( /^Auth=(.*)$/m )[ 1 ];
-                    if (callback) callback.call( window );
+                    that._loginLock = false;
+
+                    for (var idx = 0; idx < that._loginCallbacks.length; idx++) {
+                        that._loginCallbacks[ idx ].call( window );
+                    }
+                    that._loginCallbacks = null;
                 } else {
                     Tomahawk.log(
                             name + " login failed:\n"
@@ -307,6 +337,18 @@ var GMusicResolver = Tomahawk.extend( TomahawkResolver, {
      *        whether to suppress automatic re-authentication
      */
     _request: function (method, url, callback, headers, body, nologin) {
+        var that = this;
+        var args = arguments;
+
+        // if we're waiting for a login, queue the request
+        if (!nologin && this._loginLock) {
+            this._loginCallbacks.push( function() {
+                args[ 5 ] = true; // set nologin
+                that._request.apply( that, args );
+            } );
+            return;
+        }
+
         var request = new XMLHttpRequest();
         request.open( method, url, true );
 
@@ -321,8 +363,6 @@ var GMusicResolver = Tomahawk.extend( TomahawkResolver, {
         if (headers) for (var name in headers)
             request.setRequestHeader( name, headers[ name ] );
 
-        var that = this;
-        var args = arguments;
         var name = this.settings.name;
         request.onreadystatechange = function() {
             if (4 != request.readyState) return;
@@ -331,6 +371,7 @@ var GMusicResolver = Tomahawk.extend( TomahawkResolver, {
             if (401 == request.status && !nologin) {
                 Tomahawk.log( name + ' login expired, re-authenticating' );
                 that._login( function() {
+                    args[ 5 ] = true; // set nologin
                     that._request.apply( that, args );
                 });
             } else {
@@ -355,7 +396,6 @@ var GMusicResolver = Tomahawk.extend( TomahawkResolver, {
             }
 
             body = postdata.substring( 1 );
-            Tomahawk.log( "posting:\n" + body );
         }
 
         if (body) {

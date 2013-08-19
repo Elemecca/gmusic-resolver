@@ -22,6 +22,7 @@ var GMusicResolver = Tomahawk.extend( TomahawkResolver, {
 
     _version:   '0.1',
     _baseURL:   'https://www.googleapis.com/sj/v1/',
+    _webURL:    'https://play.google.com/music/',
 
     getConfigUi: function() {
         return {
@@ -109,7 +110,88 @@ var GMusicResolver = Tomahawk.extend( TomahawkResolver, {
         var that = this;
         this._login( function() {
             Tomahawk.log( name + " logged in successfully" );
-            that._ready = true;
+
+            // gets the xt cookie for the web API
+            that._request(
+                'HEAD', that._webURL + 'listen',
+                function (request) {
+                    if (200 != request.status) {
+                        Tomahawk.log( "request for xt cookie failed:"
+                                + request.status + " "
+                                + request.statusText.trim()
+                            );
+                        return;
+                    }
+
+                    var match = 
+                            request.getResponseHeader( 'Set-Cookie' )
+                            .match( /^xt=([^;]+)(?:;|$)/m );
+                    if (!match) {
+                        Tomahawk.log( "xt cookie missing" );
+                        return;
+                    }
+                    that._xt = match[ 1 ];
+
+                    // gets a device ID for the streaming API
+                    that._request(
+                        'POST', that._webURL
+                                + 'services/loadsettings?u=0&xt='
+                                + encodeURIComponent( that._xt ),
+                        function (request) {
+                            if (200 != request.status) {
+                                Tomahawk.log(
+                                        "settings request failed:\n"
+                                        + request.status + " "
+                                        + request.statusText.trim()
+                                    );
+                                return;
+                            }
+                            
+                            var response = JSON.parse(
+                                    request.responseText );
+                            if (!response.settings) {
+                                Tomahawk.log(
+                                        "settings request failed:\n"
+                                        + request.responseText.trim()
+                                    );
+                                return;
+                            }
+
+                            var device = null;
+                            var devices = response.settings.devices;
+                            for (var i = 0; i < devices.length; i++) {
+                                var entry = devices[ i ];
+                                if ('PHONE' == entry.type) {
+                                    device = entry;
+                                    break;
+                                }
+                            }
+
+                            if (device) {
+                                that._deviceId = device.id.slice( 2 );
+                                that._ready = true;
+
+                                Tomahawk.log( that.settings.name 
+                                        + " using device ID "
+                                        + that._deviceId + " from "
+                                        + device.carrier + " "
+                                        + device.manufacturer + " "
+                                        + device.model
+                                    );
+                            } else {
+                                Tomahawk.log( that.settings.name
+                                        + ": there do not appear to be"
+                                        + " any Android devices"
+                                        + " associated with your"
+                                        + " account."
+                                    );
+                            }
+                        }, 
+                        { 'Content-Type': 'application/json' }, 
+                        JSON.stringify({ 'sessionId': '' })
+                    );
+                }
+            );
         });
     },
 
@@ -272,27 +354,24 @@ var GMusicResolver = Tomahawk.extend( TomahawkResolver, {
 
         Tomahawk.log( "stream request:\n" + url );
        
-        this._request( 'GET', url, function (request) {
-            if (302 == request.status) {
+        this._request( 'GET', url,
+            function (request) {
                 Tomahawk.log(
-                        "stream request succeeded:\n"
+                        "stream request returned:\n"
                         + request.status + " "
                         + request.statusText.trim() + "\n"
-                        + request.responseText.trim()
+                        + request.getAllResponseHeaders()
                     );
-                var url = request.getResponseHeader( 'Location' );
-                Tomahawk.log( "got streaming URL:\n" + url );
-            } else {
-                Tomahawk.log(
-                        "stream request failed:\n"
-                        + request.status + " "
-                        + request.statusText.trim() + "\n"
-                        + request.responseText.trim()
-                    );
+                
+                if (302 == request.status) {
+                    var url = request.getResponseHeader( 'Location' );
+                    Tomahawk.log( "got streaming URL:\n" + url );
+                }
+            }, {
+                'X-Device-ID': this._deviceId,
+                'Accept': 'audio/mpeg',
             }
-        });
-
-        return "";
+        );
     },
 
     /** Called when the login process is completed.

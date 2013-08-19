@@ -100,98 +100,17 @@ var GMusicResolver = Tomahawk.extend( TomahawkResolver, {
             for (var idx = 0; idx < s1.words.length; idx++)
                 s1.words[ idx ] ^= s2.words[ idx ];
             this._key = s1;
-
-            Tomahawk.log( "generated key:\n"
-                    + this._key.toString( CryptoJS.enc.Base64 ) );
         }
 
         Tomahawk.addCustomUrlHandler( 'gmusic', 'getStreamUrl', true );
 
         var that = this;
         this._login( function() {
-            Tomahawk.log( name + " logged in successfully" );
-
-            // gets the xt cookie for the web API
-            that._request(
-                'HEAD', that._webURL + 'listen',
-                function (request) {
-                    if (200 != request.status) {
-                        Tomahawk.log( "request for xt cookie failed:"
-                                + request.status + " "
-                                + request.statusText.trim()
-                            );
-                        return;
-                    }
-
-                    var match = 
-                            request.getResponseHeader( 'Set-Cookie' )
-                            .match( /^xt=([^;]+)(?:;|$)/m );
-                    if (!match) {
-                        Tomahawk.log( "xt cookie missing" );
-                        return;
-                    }
-                    that._xt = match[ 1 ];
-
-                    // gets a device ID for the streaming API
-                    that._request(
-                        'POST', that._webURL
-                                + 'services/loadsettings?u=0&xt='
-                                + encodeURIComponent( that._xt ),
-                        function (request) {
-                            if (200 != request.status) {
-                                Tomahawk.log(
-                                        "settings request failed:\n"
-                                        + request.status + " "
-                                        + request.statusText.trim()
-                                    );
-                                return;
-                            }
-                            
-                            var response = JSON.parse(
-                                    request.responseText );
-                            if (!response.settings) {
-                                Tomahawk.log(
-                                        "settings request failed:\n"
-                                        + request.responseText.trim()
-                                    );
-                                return;
-                            }
-
-                            var device = null;
-                            var devices = response.settings.devices;
-                            for (var i = 0; i < devices.length; i++) {
-                                var entry = devices[ i ];
-                                if ('PHONE' == entry.type) {
-                                    device = entry;
-                                    break;
-                                }
-                            }
-
-                            if (device) {
-                                that._deviceId = device.id.slice( 2 );
-                                that._ready = true;
-
-                                Tomahawk.log( that.settings.name 
-                                        + " using device ID "
-                                        + that._deviceId + " from "
-                                        + device.carrier + " "
-                                        + device.manufacturer + " "
-                                        + device.model
-                                    );
-                            } else {
-                                Tomahawk.log( that.settings.name
-                                        + ": there do not appear to be"
-                                        + " any Android devices"
-                                        + " associated with your"
-                                        + " account."
-                                    );
-                            }
-                        }, 
-                        { 'Content-Type': 'application/json' }, 
-                        JSON.stringify({ 'sessionId': '' })
-                    );
-                }
-            );
+            that._loadWebToken( function() {
+                that._loadSettings( function() {
+                    that._ready = true;
+                });
+            });
         });
     },
 
@@ -354,7 +273,7 @@ var GMusicResolver = Tomahawk.extend( TomahawkResolver, {
 
         Tomahawk.log( "stream request:\n" + url );
        
-        this._request( 'GET', url,
+        this._request( 'HEAD', url,
             function (request) {
                 Tomahawk.log(
                         "stream request returned:\n"
@@ -370,6 +289,92 @@ var GMusicResolver = Tomahawk.extend( TomahawkResolver, {
             }, {
                 'X-Device-ID': this._deviceId,
                 'Accept': 'audio/mpeg',
+            }
+        );
+    },
+
+    _loadSettings: function (callback) {
+        var that = this;
+        that._request(
+            'POST', that._webURL
+                    + 'services/loadsettings?u=0&xt='
+                    + encodeURIComponent( that._xt ),
+            function (request) {
+                if (200 != request.status) {
+                    Tomahawk.log(
+                            "settings request failed:\n"
+                            + request.status + " "
+                            + request.statusText.trim()
+                        );
+                    return;
+                }
+                
+                var response = JSON.parse( request.responseText );
+                if (!response.settings) {
+                    Tomahawk.log( "settings request failed:\n"
+                            + request.responseText.trim()
+                        );
+                    return;
+                }
+
+                var device = null;
+                var devices = response.settings.devices;
+                for (var i = 0; i < devices.length; i++) {
+                    var entry = devices[ i ];
+                    if ('PHONE' == entry.type) {
+                        device = entry;
+                        break;
+                    }
+                }
+
+                if (device) {
+                    that._deviceId = device.id.slice( 2 );
+
+                    Tomahawk.log( that.settings.name 
+                            + " using device ID from "
+                            + device.carrier + " "
+                            + device.manufacturer + " "
+                            + device.model
+                        );
+
+                    callback.call( window );
+                } else {
+                    Tomahawk.log( that.settings.name
+                            + ": there aren't any Android devices"
+                            + " associated with your Google account."
+                            + " This resolver needs an Android device"
+                            + " ID to function. Please open the Google"
+                            + " Music application on an Android device"
+                            + " and log in to your account."
+                        );
+                }
+            }, 
+            { 'Content-Type': 'application/json' }, 
+            JSON.stringify({ 'sessionId': '' })
+        );
+    },
+
+    _loadWebToken: function (callback) {
+        var that = this;
+        that._request( 'HEAD', that._webURL + 'listen',
+            function (request) {
+                if (200 != request.status) {
+                    Tomahawk.log( "request for xt cookie failed:"
+                            + request.status + " "
+                            + request.statusText.trim()
+                        );
+                    return;
+                }
+
+                var match = request.getResponseHeader( 'Set-Cookie' )
+                                .match( /^xt=([^;]+)(?:;|$)/m );
+                if (match) {
+                    that._xt = match[ 1 ];
+                    callback.call( window );
+                } else {
+                    Tomahawk.log( "xt cookie missing" );
+                    return;
+                }
             }
         );
     },
@@ -406,6 +411,8 @@ var GMusicResolver = Tomahawk.extend( TomahawkResolver, {
                     that._token = request.responseText
                             .match( /^Auth=(.*)$/m )[ 1 ];
                     that._loginLock = false;
+            
+                    Tomahawk.log( name + " logged in successfully" );
 
                     for (var idx = 0; idx < that._loginCallbacks.length; idx++) {
                         that._loginCallbacks[ idx ].call( window );

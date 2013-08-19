@@ -317,6 +317,11 @@ var GMusicResolver = Tomahawk.extend( TomahawkResolver, {
                     return;
                 }
 
+                that._allAccess = response.settings.isSubscription;
+                Tomahawk.log( "Google Play Music All Access is "
+                        + (that._allAccess ? "enabled" : "disabled" )
+                    );
+
                 var device = null;
                 var devices = response.settings.devices;
                 for (var i = 0; i < devices.length; i++) {

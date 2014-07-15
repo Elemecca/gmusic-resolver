@@ -1,3 +1,13 @@
+# Obsolete
+
+This repository is obsolete; the resolver code has been merged into the
+central [`tomahawk-resolvers` repository][resolvers] in the [`gmusic`]
+directory. Future development will continue there.
+
+[resolvers]: https://github.com/tomahawk-player/tomahawk-resolvers
+[`gmusic`]: https://github.com/tomahawk-player/tomahawk-resolvers/tree/master/gmusic
+
+# Summary
 
 This is a Tomahawk resolver for Google Music with support for
 Google Play Music All Access.
